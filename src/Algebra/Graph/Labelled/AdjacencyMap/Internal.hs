@@ -33,11 +33,32 @@ import Algebra.Graph.Label
 -- defined in the top-level module "Algebra.Graph.AdjacencyMap", where @False@
 -- and @True@ denote the lack of and the existence of an unlabelled edge,
 -- respectively.
-newtype AdjacencyMap e a = AM {
+data AdjacencyMap e a = AM {
     -- | The /adjacency map/ of an edge-labelled graph: each vertex is
     -- associated with a map from its direct successors to the corresponding
     -- edge labels.
-    adjacencyMap :: Map a (Map a e) } deriving (Eq, NFData)
+    adjacencyMap :: Map a (Map a e)
+  , selfLoopAddition :: e
+  } deriving (Eq, NFData)
+
+instance (Eq e, Monoid e, Ord a) => Semigroup (AdjacencyMap e a) where
+  AM x xa <> AM y ya   = AM (overlays [x, y]) (xa <> ya)
+
+instance (Eq e, Monoid e, Ord a) => Monoid (AdjacencyMap e a) where
+  mempty = AM mempty mempty
+  mappend = (<>)
+
+instance (Eq e, Semiring e, Ord a) => Semiring (AdjacencyMap e a) where
+  one = AM mempty one
+  AM x xa <.> AM y ya   = AM (overlays $ x : y : [ Map.fromSet (const targets) (Map.keysSet x) ]) (xa <.> ya)
+    where
+      targets = Map.fromSet (const one) (Map.keysSet y)
+
+instance StarSemiring (AdjacencyMap e a) where
+  star (AM x xa) = _
+
+-- diod if appropriate
+-- instance Dioid (AdjacencyMap e a) where
 
 instance (Ord a, Show a, Ord e, Show e) => Show (AdjacencyMap e a) where
     showsPrec p (AM m)
@@ -83,12 +104,9 @@ overlays = Map.unionsWith (\x -> Map.filter (/= zero) . Map.unionWith mappend x)
 -- | __Note:__ this does not satisfy the usual ring laws; see 'AdjacencyMap'
 -- for more details.
 instance (Eq e, Dioid e, Num a, Ord a) => Num (AdjacencyMap e a) where
-    fromInteger x = AM $ Map.singleton (fromInteger x) Map.empty
-    AM x + AM y   = AM $ overlays [x, y]
-    AM x * AM y   = AM $ overlays $ x : y :
-        [ Map.fromSet (const targets) (Map.keysSet x) ]
-      where
-        targets = Map.fromSet (const one) (Map.keysSet y)
+    fromInteger x = AM (Map.singleton (fromInteger x) Map.empty) mempty
+    (+)   = (<>)
+    (*)   = (<.>)
     signum      = const (AM Map.empty)
     abs         = id
     negate      = id
@@ -99,7 +117,7 @@ instance (Eq e, Dioid e, Num a, Ord a) => Num (AdjacencyMap e a) where
 -- function in testing.
 -- /Note: this function is for internal use only/.
 consistent :: (Ord a, Eq e, Monoid e) => AdjacencyMap e a -> Bool
-consistent (AM m) = referredToVertexSet m `Set.isSubsetOf` Map.keysSet m
+consistent (AM m _) = referredToVertexSet m `Set.isSubsetOf` Map.keysSet m
     && and [ e /= zero | (_, es) <- Map.toAscList m, (_, e) <- Map.toAscList es ]
 
 -- The set of vertices that are referred to by the edges in an adjacency map
